@@ -17,13 +17,15 @@
         bottom: 0;
         left: 0;
       }
+
+      img {
+        display: none;
+      }
     </style>
   </head>
   <body>
     <canvas></canvas>
 
-    <!-- Shader sources -->
-    <!-- Skip to next script tag for WebGL code -->
     <script>
       const pass1_vertexShaderSource = `#version 300 es
         in vec3 a_position;
@@ -591,8 +593,12 @@
       `;
     </script>
 
+    <img src="no-aa.png" alt="Image to anti-aliased" crossorigin="anonymous" />
+    <img src="AreaTexDX10.png" alt="AreaTex" crossorigin="anonymous" />
+    <img src="SearchTex.png" alt="SearchTex" crossorigin="anonymous" />
+
     <script>
-      (async function () {
+      window.onload = function () {
         // ==================================================
         // Initialize canvas
 
@@ -632,13 +638,7 @@
         // ==================================================
         // Prepare texture of image to be anti-aliased
 
-        const noAAimage = new Image();
-        await new Promise((resolve, reject) => {
-          noAAimage.onload = resolve;
-          noAAimage.onerror = reject;
-          noAAimage.crossOrigin = "anonymous";
-          noAAimage.src = "no-aa.png";
-        });
+        const noAAimage = document.querySelector("img:nth-of-type(1)");
 
         const noAAimageTexture = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, noAAimageTexture);
@@ -654,21 +654,8 @@
         // ==================================================
         // Prepare areaTexture and searchTexture
 
-        const areaTexImage = new Image();
-        await new Promise((resolve, reject) => {
-          areaTexImage.onload = resolve;
-          areaTexImage.onerror = reject;
-          areaTexImage.crossOrigin = "anonymous";
-          areaTexImage.src = "AreaTexDX10.png";
-        });
-
-        const searchTexImage = new Image();
-        await new Promise((resolve, reject) => {
-          searchTexImage.onload = resolve;
-          searchTexImage.onerror = reject;
-          searchTexImage.crossOrigin = "anonymous";
-          searchTexImage.src = "SearchTex.png";
-        });
+        const areaTexImage = document.querySelector("img:nth-of-type(2)");
+        const searchTexImage = document.querySelector("img:nth-of-type(3)");
 
         const areaTex = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, areaTex);
@@ -846,7 +833,7 @@
         gl.bindVertexArray(rectangleVao);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindVertexArray(null);
-      })();
+      };
     </script>
   </body>
 </html>
