@@ -27,22 +27,28 @@
     <canvas></canvas>
 
     <script>
+      // High preset
+      const SMAA_THRESHOLD = 0.1;
+      const SMAA_MAX_SEARCH_STEPS = 16;
+      const SMAA_MAX_SEARCH_STEPS_DIAG = 8;
+      const SMAA_CORNER_ROUNDING = 25;
+
       const pass1_vertexShaderSource = `#version 300 es
+        uniform vec4 u_resolution;
+
         in vec3 a_position;
         in vec2 a_uv;
 
         out vec2 texcoord;
         out vec4 offset[3];
 
-        #define SMAA_RT_METRICS vec4(1.0 / 1280.0, 1.0 / 720.0, 1280.0, 720.0)
         #define mad(a, b, c) (a * b + c)
-
         #define API_V_DIR(v) -(v)
 
         void SMAAEdgeDetectionVS(vec2 texcoord, inout vec4 offset[3]) {
-          offset[0] = mad(SMAA_RT_METRICS.xyxy, vec4(-1.0, 0.0, 0.0, API_V_DIR(-1.0)), texcoord.xyxy);
-          offset[1] = mad(SMAA_RT_METRICS.xyxy, vec4( 1.0, 0.0, 0.0, API_V_DIR(1.0)), texcoord.xyxy);
-          offset[2] = mad(SMAA_RT_METRICS.xyxy, vec4(-2.0, 0.0, 0.0, API_V_DIR(-2.0)), texcoord.xyxy);
+          offset[0] = mad(u_resolution.xyxy, vec4(-1.0, 0.0, 0.0, API_V_DIR(-1.0)), texcoord.xyxy);
+          offset[1] = mad(u_resolution.xyxy, vec4( 1.0, 0.0, 0.0, API_V_DIR(1.0)), texcoord.xyxy);
+          offset[2] = mad(u_resolution.xyxy, vec4(-2.0, 0.0, 0.0, API_V_DIR(-2.0)), texcoord.xyxy);
         }
 
         void main() {
@@ -64,7 +70,7 @@
 
         out vec4 finalColor;
 
-        #define SMAA_THRESHOLD 0.1
+        #define SMAA_THRESHOLD ${SMAA_THRESHOLD}
         #define SMAA_LOCAL_CONTRAST_ADAPTATION_FACTOR 2.0
 
         vec2 SMAAColorEdgeDetectionPS(vec2 texcoord, vec4 offset[3], sampler2D colorTex) {
@@ -117,26 +123,28 @@
       `;
 
       const pass2_vertexShaderSource = `#version 300 es
+        uniform vec4 u_resolution;
+
         in vec3 a_position;
         in vec2 a_uv;
 
         out vec2 texcoord;
         out vec2 pixcoord;
         out vec4 offset[3];
+        out vec4 resolution;
 
-        #define SMAA_RT_METRICS vec4(1.0 / 1280.0, 1.0 / 720.0, 1280.0, 720.0)
-        #define SMAA_MAX_SEARCH_STEPS 16
+        #define SMAA_MAX_SEARCH_STEPS ${SMAA_MAX_SEARCH_STEPS}
 
         #define mad(a, b, c) (a * b + c)
         #define API_V_DIR(v) -(v)
 
         void SMAABlendingWeightCalculationVS(vec2 texcoord, out vec2 pixcoord, inout vec4 offset[3]) {
-            pixcoord = texcoord * SMAA_RT_METRICS.zw;
+            pixcoord = texcoord * resolution.zw;
 
-            offset[0] = mad(SMAA_RT_METRICS.xyxy, vec4(-0.25, API_V_DIR(-0.125), 1.25, API_V_DIR(-0.125)), texcoord.xyxy);
-            offset[1] = mad(SMAA_RT_METRICS.xyxy, vec4(-0.125, API_V_DIR(-0.25), -0.125, API_V_DIR(1.25)), texcoord.xyxy);
+            offset[0] = mad(resolution.xyxy, vec4(-0.25, API_V_DIR(-0.125), 1.25, API_V_DIR(-0.125)), texcoord.xyxy);
+            offset[1] = mad(resolution.xyxy, vec4(-0.125, API_V_DIR(-0.25), -0.125, API_V_DIR(1.25)), texcoord.xyxy);
             offset[2] = mad(
-                            SMAA_RT_METRICS.xxyy,
+                            resolution.xxyy,
                             vec4(-2.0, 2.0, API_V_DIR(-2.0), API_V_DIR(2.0)) * float(SMAA_MAX_SEARCH_STEPS),
                             vec4(offset[0].xz, offset[1].yw)
                         );
@@ -144,6 +152,7 @@
 
         void main() {
             texcoord = a_uv;
+            resolution = u_resolution;
 
             SMAABlendingWeightCalculationVS(texcoord, pixcoord, offset);
 
@@ -163,14 +172,13 @@
         in vec2 texcoord;
         in vec2 pixcoord;
         in vec4 offset[3];
+        in vec4 resolution;
 
         out vec4 finalColor;
 
-        #define SMAA_RT_METRICS vec4(1.0 / 1280.0, 1.0 / 720.0, 1280.0, 720.0)
-
-        #define SMAA_MAX_SEARCH_STEPS 16
-        #define SMAA_MAX_SEARCH_STEPS_DIAG 8
-        #define SMAA_CORNER_ROUNDING 25
+        #define SMAA_MAX_SEARCH_STEPS ${SMAA_MAX_SEARCH_STEPS}
+        #define SMAA_MAX_SEARCH_STEPS_DIAG ${SMAA_MAX_SEARCH_STEPS_DIAG}
+        #define SMAA_CORNER_ROUNDING ${SMAA_CORNER_ROUNDING}
 
         #define SMAA_AREATEX_MAX_DISTANCE 16
         #define SMAA_AREATEX_MAX_DISTANCE_DIAG 20
@@ -180,11 +188,8 @@
         #define SMAA_SEARCHTEX_PACKED_SIZE vec2(64.0, 16.0)
         #define SMAA_CORNER_ROUNDING_NORM (float(SMAA_CORNER_ROUNDING) / 100.0)
 
-        #define SMAA_AREATEX_SELECT(sample) sample.rg
-        #define SMAA_SEARCHTEX_SELECT(sample) sample.r
-
-        #define SMAASampleLevelZero(tex, coord) textureLod(tex, coord, 0.0)
-        #define SMAASampleLevelZeroOffset(tex, coord, offset) textureLodOffset(tex, coord, 0.0, offset)
+        #define sampleLevelZero(tex, coord) textureLod(tex, coord, 0.0)
+        #define sampleLevelZeroOffset(tex, coord, offset) textureLodOffset(tex, coord, 0.0, offset)
         #define saturate(a) clamp(a, 0.0, 1.0)
         #define mad(a, b, c) (a * b + c)
 
@@ -217,11 +222,11 @@
             dir.y = API_V_DIR(dir.y);
 
             vec4 coord = vec4(texcoord, -1.0, 1.0);
-            vec3 t = vec3(SMAA_RT_METRICS.xy, 1.0);
+            vec3 t = vec3(resolution.xy, 1.0);
 
             while (coord.z < float(SMAA_MAX_SEARCH_STEPS_DIAG - 1) && coord.w > 0.9) {
                 coord.xyz = mad(t, vec3(dir, 1.0), coord.xyz);
-                e = SMAASampleLevelZero(edgesTex, coord.xy).rg;
+                e = sampleLevelZero(edgesTex, coord.xy).rg;
                 coord.w = dot(e, vec2(0.5, 0.5));
             }
 
@@ -232,14 +237,14 @@
             dir.y = API_V_DIR(dir.y);
 
             vec4 coord = vec4(texcoord, -1.0, 1.0);
-            coord.x += 0.25 * SMAA_RT_METRICS.x;
+            coord.x += 0.25 * resolution.x;
 
-            vec3 t = vec3(SMAA_RT_METRICS.xy, 1.0);
+            vec3 t = vec3(resolution.xy, 1.0);
 
             while (coord.z < float(SMAA_MAX_SEARCH_STEPS_DIAG - 1) && coord.w > 0.9) {
                 coord.xyz = mad(t, vec3(dir, 1.0), coord.xyz);
 
-                e = SMAASampleLevelZero(edgesTex, coord.xy).rg;
+                e = sampleLevelZero(edgesTex, coord.xy).rg;
                 e = SMAADecodeDiagBilinearAccess(e);
 
                 coord.w = dot(e, vec2(0.5, 0.5));
@@ -256,7 +261,7 @@
             texcoord.y += SMAA_AREATEX_SUBTEX_SIZE * offset;
             texcoord.y = API_V_COORD(texcoord.y);
 
-            return SMAA_AREATEX_SELECT(SMAASampleLevelZero(areaTex, texcoord));
+            return sampleLevelZero(areaTex, texcoord).rg;
         }
 
         vec2 SMAACalculateDiagWeights(sampler2D edgesTex, sampler2D areaTex, vec2 texcoord, vec2 e, vec4 subsampleIndices) {
@@ -274,10 +279,10 @@
             d.yw = SMAASearchDiag1(edgesTex, texcoord, vec2(1.0, -1.0), end);
 
             if (d.x + d.y > 2.0) {
-                vec4 coords = mad(vec4(-d.x + 0.25, API_V_DIR(d.x), d.y, API_V_DIR(-d.y - 0.25)), SMAA_RT_METRICS.xyxy, texcoord.xyxy);
+                vec4 coords = mad(vec4(-d.x + 0.25, API_V_DIR(d.x), d.y, API_V_DIR(-d.y - 0.25)), resolution.xyxy, texcoord.xyxy);
                 vec4 c;
-                c.xy = SMAASampleLevelZeroOffset(edgesTex, coords.xy, ivec2(-1, 0)).rg;
-                c.zw = SMAASampleLevelZeroOffset(edgesTex, coords.zw, ivec2(1, 0)).rg;
+                c.xy = sampleLevelZeroOffset(edgesTex, coords.xy, ivec2(-1, 0)).rg;
+                c.zw = sampleLevelZeroOffset(edgesTex, coords.zw, ivec2(1, 0)).rg;
                 c.yxwz = SMAADecodeDiagBilinearAccess(c.xyzw);
 
                 vec2 cc = mad(vec2(2.0, 2.0), c.xz, c.yw);
@@ -289,7 +294,7 @@
 
             d.xz = SMAASearchDiag2(edgesTex, texcoord, vec2(-1.0, -1.0), end);
 
-            if (SMAASampleLevelZeroOffset(edgesTex, texcoord, ivec2(1, 0)).r > 0.0) {
+            if (sampleLevelZeroOffset(edgesTex, texcoord, ivec2(1, 0)).r > 0.0) {
                 d.yw = SMAASearchDiag2(edgesTex, texcoord, vec2(1.0, 1.0), end);
                 d.y += float(end.y > 0.9);
             } else {
@@ -297,11 +302,11 @@
             }
 
             if (d.x + d.y > 2.0) {
-                vec4 coords = mad(vec4(-d.x, API_V_DIR(-d.x), d.y, API_V_DIR(d.y)), SMAA_RT_METRICS.xyxy, texcoord.xyxy);
+                vec4 coords = mad(vec4(-d.x, API_V_DIR(-d.x), d.y, API_V_DIR(d.y)), resolution.xyxy, texcoord.xyxy);
                 vec4 c;
-                c.x = SMAASampleLevelZeroOffset(edgesTex, coords.xy, ivec2(-1, 0)).g;
-                c.y = SMAASampleLevelZeroOffset(edgesTex, coords.xy, ivec2(0, API_V_DIR(-1))).r;
-                c.zw = SMAASampleLevelZeroOffset(edgesTex, coords.zw, ivec2(1, 0)).gr;
+                c.x = sampleLevelZeroOffset(edgesTex, coords.xy, ivec2(-1, 0)).g;
+                c.y = sampleLevelZeroOffset(edgesTex, coords.xy, ivec2(0, API_V_DIR(-1))).r;
+                c.zw = sampleLevelZeroOffset(edgesTex, coords.zw, ivec2(1, 0)).gr;
                 vec2 cc = mad(vec2(2.0, 2.0), c.xz, c.yw);
 
                 SMAAMovc(bvec2(step(0.9, d.zw)), cc, vec2(0.0, 0.0));
@@ -325,59 +330,59 @@
             vec2 coord = mad(scale, e, bias);
             coord.y = API_V_COORD(coord.y);
 
-            return SMAA_SEARCHTEX_SELECT(SMAASampleLevelZero(searchTex, coord));
+            return sampleLevelZero(searchTex, coord).r;
         }
 
         float SMAASearchXLeft(sampler2D edgesTex, sampler2D searchTex, vec2 texcoord, float end) {
             vec2 e = vec2(0.0, 1.0);
 
             while (texcoord.x > end && e.g > 0.8281 && e.r == 0.0) {
-                e = SMAASampleLevelZero(edgesTex, texcoord).rg;
-                texcoord = mad(-vec2(2.0, 0.0), SMAA_RT_METRICS.xy, texcoord);
+                e = sampleLevelZero(edgesTex, texcoord).rg;
+                texcoord = mad(-vec2(2.0, 0.0), resolution.xy, texcoord);
             }
 
             float offset = mad(-(255.0 / 127.0), SMAASearchLength(searchTex, e, 0.0), 3.25);
 
-            return mad(SMAA_RT_METRICS.x, offset, texcoord.x);
+            return mad(resolution.x, offset, texcoord.x);
         }
 
         float SMAASearchXRight(sampler2D edgesTex, sampler2D searchTex, vec2 texcoord, float end) {
             vec2 e = vec2(0.0, 1.0);
 
             while (texcoord.x < end && e.g > 0.8281 && e.r == 0.0) {
-                e = SMAASampleLevelZero(edgesTex, texcoord).rg;
-                texcoord = mad(vec2(2.0, 0.0), SMAA_RT_METRICS.xy, texcoord);
+                e = sampleLevelZero(edgesTex, texcoord).rg;
+                texcoord = mad(vec2(2.0, 0.0), resolution.xy, texcoord);
             }
 
             float offset = mad(-(255.0 / 127.0), SMAASearchLength(searchTex, e, 0.5), 3.25);
 
-            return mad(-SMAA_RT_METRICS.x, offset, texcoord.x);
+            return mad(-resolution.x, offset, texcoord.x);
         }
 
         float SMAASearchYUp(sampler2D edgesTex, sampler2D searchTex, vec2 texcoord, float end) {
             vec2 e = vec2(1.0, 0.0);
 
             while (API_V_BELOW(texcoord.y, end) && e.r > 0.8281 && e.g == 0.0) {
-                e = SMAASampleLevelZero(edgesTex, texcoord).rg;
-                texcoord = mad(-vec2(0.0, API_V_DIR(2.0)), SMAA_RT_METRICS.xy, texcoord);
+                e = sampleLevelZero(edgesTex, texcoord).rg;
+                texcoord = mad(-vec2(0.0, API_V_DIR(2.0)), resolution.xy, texcoord);
             }
 
             float offset = mad(-(255.0 / 127.0), SMAASearchLength(searchTex, e.gr, 0.0), 3.25);
 
-            return mad(SMAA_RT_METRICS.y, API_V_DIR(offset), texcoord.y);
+            return mad(resolution.y, API_V_DIR(offset), texcoord.y);
         }
 
         float SMAASearchYDown(sampler2D edgesTex, sampler2D searchTex, vec2 texcoord, float end) {
             vec2 e = vec2(1.0, 0.0);
 
             while (API_V_ABOVE(texcoord.y, end) && e.r > 0.8281 && e.g == 0.0) {
-                e = SMAASampleLevelZero(edgesTex, texcoord).rg;
-                texcoord = mad(vec2(0.0, API_V_DIR(2.0)), SMAA_RT_METRICS.xy, texcoord);
+                e = sampleLevelZero(edgesTex, texcoord).rg;
+                texcoord = mad(vec2(0.0, API_V_DIR(2.0)), resolution.xy, texcoord);
             }
 
             float offset = mad(-(255.0 / 127.0), SMAASearchLength(searchTex, e.gr, 0.5), 3.25);
 
-            return mad(-SMAA_RT_METRICS.y, API_V_DIR(offset), texcoord.y);
+            return mad(-resolution.y, API_V_DIR(offset), texcoord.y);
         }
 
         vec2 SMAAArea(sampler2D areaTex, vec2 dist, float e1, float e2, float offset) {
@@ -387,7 +392,7 @@
             texcoord.y = mad(SMAA_AREATEX_SUBTEX_SIZE, offset, texcoord.y);
             texcoord.y = API_V_COORD(texcoord.y);
 
-            return SMAA_AREATEX_SELECT(SMAASampleLevelZero(areaTex, texcoord));
+            return sampleLevelZero(areaTex, texcoord).rg;
         }
 
         void SMAADetectHorizontalCornerPattern(sampler2D edgesTex, inout vec2 weights, vec4 texcoord, vec2 d) {
@@ -397,10 +402,10 @@
             rounding /= leftRight.x + leftRight.y;
 
             vec2 factor = vec2(1.0, 1.0);
-            factor.x -= rounding.x * SMAASampleLevelZeroOffset(edgesTex, texcoord.xy, ivec2(0, API_V_DIR(1))).r;
-            factor.x -= rounding.y * SMAASampleLevelZeroOffset(edgesTex, texcoord.zw, ivec2(1, API_V_DIR(1))).r;
-            factor.y -= rounding.x * SMAASampleLevelZeroOffset(edgesTex, texcoord.xy, ivec2(0, API_V_DIR(-2))).r;
-            factor.y -= rounding.y * SMAASampleLevelZeroOffset(edgesTex, texcoord.zw, ivec2(1, API_V_DIR(-2))).r;
+            factor.x -= rounding.x * sampleLevelZeroOffset(edgesTex, texcoord.xy, ivec2(0, API_V_DIR(1))).r;
+            factor.x -= rounding.y * sampleLevelZeroOffset(edgesTex, texcoord.zw, ivec2(1, API_V_DIR(1))).r;
+            factor.y -= rounding.x * sampleLevelZeroOffset(edgesTex, texcoord.xy, ivec2(0, API_V_DIR(-2))).r;
+            factor.y -= rounding.y * sampleLevelZeroOffset(edgesTex, texcoord.zw, ivec2(1, API_V_DIR(-2))).r;
 
             weights *= saturate(factor);
         }
@@ -412,10 +417,10 @@
             rounding /= leftRight.x + leftRight.y;
 
             vec2 factor = vec2(1.0, 1.0);
-            factor.x -= rounding.x * SMAASampleLevelZeroOffset(edgesTex, texcoord.xy, ivec2(1, 0)).g;
-            factor.x -= rounding.y * SMAASampleLevelZeroOffset(edgesTex, texcoord.zw, ivec2(1, API_V_DIR(1))).g;
-            factor.y -= rounding.x * SMAASampleLevelZeroOffset(edgesTex, texcoord.xy, ivec2(-2, 0)).g;
-            factor.y -= rounding.y * SMAASampleLevelZeroOffset(edgesTex, texcoord.zw, ivec2(-2, API_V_DIR(1))).g;
+            factor.x -= rounding.x * sampleLevelZeroOffset(edgesTex, texcoord.xy, ivec2(1, 0)).g;
+            factor.x -= rounding.y * sampleLevelZeroOffset(edgesTex, texcoord.zw, ivec2(1, API_V_DIR(1))).g;
+            factor.y -= rounding.x * sampleLevelZeroOffset(edgesTex, texcoord.xy, ivec2(-2, 0)).g;
+            factor.y -= rounding.y * sampleLevelZeroOffset(edgesTex, texcoord.zw, ivec2(-2, API_V_DIR(1))).g;
 
             weights *= saturate(factor);
         }
@@ -444,14 +449,14 @@
                     coords.y = offset[1].y;
                     d.x = coords.x;
 
-                    float e1 = SMAASampleLevelZero(edgesTex, coords.xy).r;
+                    float e1 = sampleLevelZero(edgesTex, coords.xy).r;
 
                     coords.z = SMAASearchXRight(edgesTex, searchTex, offset[0].zw, offset[2].y);
                     d.y = coords.z;
-                    d = abs(round(mad(SMAA_RT_METRICS.zz, d, -pixcoord.xx)));
+                    d = abs(round(mad(resolution.zz, d, -pixcoord.xx)));
 
                     vec2 sqrt_d = sqrt(d);
-                    float e2 = SMAASampleLevelZeroOffset(edgesTex, coords.zy, ivec2(1, 0)).r;
+                    float e2 = sampleLevelZeroOffset(edgesTex, coords.zy, ivec2(1, 0)).r;
 
                     weights.rg = SMAAArea(areaTex, sqrt_d, e1, e2, subsampleIndices.y);
 
@@ -470,14 +475,14 @@
                 coords.x = offset[0].x;
                 d.x = coords.y;
 
-                float e1 = SMAASampleLevelZero(edgesTex, coords.xy).g;
+                float e1 = sampleLevelZero(edgesTex, coords.xy).g;
 
                 coords.z = SMAASearchYDown(edgesTex, searchTex, offset[1].zw, offset[2].w);
                 d.y = coords.z;
-                d = abs(round(mad(SMAA_RT_METRICS.ww, d, -pixcoord.yy)));
+                d = abs(round(mad(resolution.ww, d, -pixcoord.yy)));
 
                 vec2 sqrt_d = sqrt(d);
-                float e2 = SMAASampleLevelZeroOffset(edgesTex, coords.xz, ivec2(0, API_V_DIR(1))).g;
+                float e2 = sampleLevelZeroOffset(edgesTex, coords.xz, ivec2(0, API_V_DIR(1))).g;
 
                 weights.ba = SMAAArea(areaTex, sqrt_d, e1, e2, subsampleIndices.x);
 
@@ -494,23 +499,25 @@
       `;
 
       const pass3_vertexShaderSource = `#version 300 es
+        uniform vec4 u_resolution;
+
         in vec3 a_position;
         in vec2 a_uv;
 
         out vec2 texcoord;
         out vec4 offset;
-
-        #define SMAA_RT_METRICS vec4(1.0 / 1280.0, 1.0 / 720.0, 1280.0, 720.0)
+        out vec4 resolution;
 
         #define mad(a, b, c) (a * b + c)
         #define API_V_DIR(v) -(v)
 
         void SMAANeighborhoodBlendingVS(vec2 texcoord, out vec4 offset) {
-          offset = mad(SMAA_RT_METRICS.xyxy, vec4( 1.0, 0.0, 0.0, API_V_DIR(1.0)), texcoord.xyxy);
+          offset = mad(resolution.xyxy, vec4( 1.0, 0.0, 0.0, API_V_DIR(1.0)), texcoord.xyxy);
         }
 
         void main() {
             texcoord = a_uv;
+            resolution = u_resolution;
 
             SMAANeighborhoodBlendingVS(texcoord, offset);
 
@@ -526,12 +533,11 @@
 
         in vec2 texcoord;
         in vec4 offset;
+        in vec4 resolution;
 
         out vec4 finalColor;
 
-        #define SMAA_RT_METRICS vec4(1.0 / 1280.0, 1.0 / 720.0, 1280.0, 720.0)
-
-        #define SMAASampleLevelZero(tex, coord) textureLod(tex, coord, 0.0)
+        #define sampleLevelZero(tex, coord) textureLod(tex, coord, 0.0)
         #define mad(a, b, c) (a * b + c)
 
         #define API_V_DIR(v) -(v)
@@ -566,7 +572,7 @@
           a.wz = texture(blendTex, texcoord).xz;
 
           if (dot(a, vec4(1.0, 1.0, 1.0, 1.0)) < 1e-5) {
-            vec4 color = SMAASampleLevelZero(colorTex, texcoord);
+            vec4 color = sampleLevelZero(colorTex, texcoord);
             return toSrgb(color);
           } else {
             bool h = max(a.x, a.z) > max(a.y, a.w);
@@ -577,9 +583,9 @@
             SMAAMovc(bvec2(h, h), blendingWeight, a.xz);
             blendingWeight /= dot(blendingWeight, vec2(1.0, 1.0));
 
-            vec4 blendingCoord = mad(blendingOffset, vec4(SMAA_RT_METRICS.xy, -SMAA_RT_METRICS.xy), texcoord.xyxy);
-            vec4 color = blendingWeight.x * SMAASampleLevelZero(colorTex, blendingCoord.xy);
-            color += blendingWeight.y * SMAASampleLevelZero(colorTex, blendingCoord.zw);
+            vec4 blendingCoord = mad(blendingOffset, vec4(resolution.xy, -resolution.xy), texcoord.xyxy);
+            vec4 color = blendingWeight.x * sampleLevelZero(colorTex, blendingCoord.xy);
+            color += blendingWeight.y * sampleLevelZero(colorTex, blendingCoord.zw);
 
             return toSrgb(color);
           }
@@ -606,6 +612,8 @@
         canvas.width = 1280;
         canvas.height = 720;
         gl.viewport(0, 0, 1280, 720);
+
+        const resolution = [1 / 1280, 1 / 720, 1280, 720];
 
         // ==================================================
         // Prepare rectangle primitive
@@ -710,7 +718,7 @@
         gl.linkProgram(pass1_program);
 
         // ==================================================
-        // Prepare Pass 1 UBO
+        // Prepare Pass 1 FBO
 
         const pass1_fbo = gl.createFramebuffer();
         const pass1_fbo_texture = gl.createTexture();
@@ -728,6 +736,16 @@
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
         // ==================================================
+        // Set Pass 1 uniform locations
+
+        gl.useProgram(pass1_program);
+
+        const pass1_resolutionLocation = gl.getUniformLocation(pass1_program, "u_resolution");
+        gl.uniform4fv(pass1_resolutionLocation, resolution);
+
+        gl.useProgram(null);
+
+        // ==================================================
         // Prepare Pass 2 shader program
 
         const pass2_vertexShader = gl.createShader(gl.VERTEX_SHADER);
@@ -743,7 +761,7 @@
         gl.linkProgram(pass2_program);
 
         // ==================================================
-        // Prepare Pass 2 UBO
+        // Prepare Pass 2 FBO
 
         const pass2_fbo = gl.createFramebuffer();
         const pass2_fbo_texture = gl.createTexture();
@@ -759,17 +777,19 @@
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
         // ==================================================
-        // Set Pass 2 texture uniform locations
+        // Set Pass 2 uniform locations
 
         gl.useProgram(pass2_program);
 
         const pass2_edgeTexLocation = gl.getUniformLocation(pass2_program, "edgesTex");
         const pass2_areaTexLocation = gl.getUniformLocation(pass2_program, "areaTex");
         const pass2_searchTexLocation = gl.getUniformLocation(pass2_program, "searchTex");
+        const pass2_resolutionLocation = gl.getUniformLocation(pass2_program, "u_resolution");
 
         gl.uniform1i(pass2_edgeTexLocation, 0);
         gl.uniform1i(pass2_areaTexLocation, 1);
         gl.uniform1i(pass2_searchTexLocation, 2);
+        gl.uniform4fv(pass2_resolutionLocation, resolution);
 
         gl.useProgram(null);
 
@@ -789,15 +809,17 @@
         gl.linkProgram(pass3_program);
 
         // ==================================================
-        // Set Pass 3 texture uniform locations
+        // Set Pass 3 uniform locations
 
         gl.useProgram(pass3_program);
 
         const pass3_colorTexLocation = gl.getUniformLocation(pass3_program, "colorTex");
         const pass3_blendTexLocation = gl.getUniformLocation(pass3_program, "blendTex");
+        const pass3_resolutionLocation = gl.getUniformLocation(pass3_program, "u_resolution");
 
         gl.uniform1i(pass3_colorTexLocation, 0);
         gl.uniform1i(pass3_blendTexLocation, 1);
+        gl.uniform4fv(pass3_resolutionLocation, resolution);
 
         gl.useProgram(null);
 
